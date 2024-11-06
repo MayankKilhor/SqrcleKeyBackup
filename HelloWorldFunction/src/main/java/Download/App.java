@@ -11,13 +11,17 @@ import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.GetObjectRequest;
 import com.amazonaws.services.s3.model.S3Object;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import payload.request.KeyDownloadRequest;
 import payload.request.KeyDownloadRequestParser;
+import payload.response.ApiResponse;
 
 import javax.crypto.SecretKey;
 import java.io.*;
+import java.util.Map;
 
 public class App implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
 
@@ -41,19 +45,34 @@ public class App implements RequestHandler<APIGatewayProxyRequestEvent, APIGatew
             DatabaseUtil databaseUtil = new DatabaseUtil();
             user = databaseUtil.findByUserName(username);
             if(user == null){
+                ApiResponse apiResponse = new ApiResponse(false,"Unable to fetch User details");
+                apiResponse.addDetail("error","Unable to fetch User details from the database!");
+                apiResponse.addDetail("username",username);
+                ObjectMapper objectMapper = new ObjectMapper();
+                String jsonResponse = objectMapper.writeValueAsString(apiResponse);
                 return response
-                        .withBody("Unable to Fetch User Details")
+                        .withBody(jsonResponse)
                         .withStatusCode(400);
             }
             if(!user.getKeysBackup()){
+                ApiResponse apiResponse = new ApiResponse(false,"User Backup doesn't exist");
+                apiResponse.addDetail("error","User Backup doesn't exist!");
+                apiResponse.addDetail("username",username);
+                ObjectMapper objectMapper = new ObjectMapper();
+                String jsonResponse = objectMapper.writeValueAsString(apiResponse);
                 return response
-                        .withBody("User Backup doesn't exist!")
+                        .withBody(jsonResponse)
                         .withStatusCode(400);
             }
             PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
             if (!passwordEncoder.matches(keyDownloadRequest.getPassword(), user.getPassword())) {
+                ApiResponse apiResponse = new ApiResponse(false,"Authentication failed, Password is incorrect");
+                apiResponse.addDetail("error","Authentication failed, Password is incorrect!");
+                apiResponse.addDetail("username",username);
+                ObjectMapper objectMapper = new ObjectMapper();
+                String jsonResponse = objectMapper.writeValueAsString(apiResponse);
                 return response
-                        .withBody("Authentication failed!")
+                        .withBody(jsonResponse)
                         .withStatusCode(401);
             }
             String decryptionKey = keyDownloadRequest.getPassword();
@@ -66,16 +85,9 @@ public class App implements RequestHandler<APIGatewayProxyRequestEvent, APIGatew
                 SecurityUtil securityUtil = new SecurityUtil();
                 SecretKey secretKey = securityUtil.generateKey(decryptionKey);
                 json = securityUtil.decrypt(encryptedData,secretKey);
-//                Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-//                byte[] keyBytes = decryptionKey.getBytes();
-//                SecretKeySpec secretKeySpec = new SecretKeySpec(keyBytes, "AES");
-//                cipher.init(Cipher.DECRYPT_MODE, secretKeySpec);
-//
-//
-//                byte[] decryptedData = cipher.doFinal(encryptedData);
-//                json = new String(decryptedData);
+
             }else{
-                // Read the content of the object
+
                 BufferedReader reader = new BufferedReader(new InputStreamReader(s3Object.getObjectContent()));
                 StringBuilder content = new StringBuilder();
                 String line;
@@ -83,27 +95,52 @@ public class App implements RequestHandler<APIGatewayProxyRequestEvent, APIGatew
                     content.append(line);
                 }
 
-                // Close the reader
                 reader.close();
                 json=content.toString();
             }
 
 
+            ObjectMapper objectMapper = new ObjectMapper();
+            ApiResponse apiResponse = new ApiResponse(false,"Successfully downloaded key");
+            Map<String, Object> keysMap = objectMapper.readValue(json, Map.class);
+            apiResponse.addDetail("keys",keysMap);
 
 
+            String jsonResponse = objectMapper.writeValueAsString(apiResponse);
             return response
-                    .withBody(json)
+                    .withBody(jsonResponse)
                     .withStatusCode(200);
+
         } catch (IOException e) {
             APIGatewayProxyResponseEvent response = new APIGatewayProxyResponseEvent();
+            ApiResponse apiResponse = new ApiResponse(false,"Unable to download Key");
+            apiResponse.addDetail("error",e.getMessage());
+            apiResponse.addDetail("body",input.getBody());
+            ObjectMapper objectMapper = new ObjectMapper();
+            String jsonResponse = null;
+            try {
+                jsonResponse = objectMapper.writeValueAsString(apiResponse);
+            } catch (JsonProcessingException ex) {
+                throw new RuntimeException(ex);
+            }
             return response
-                    .withBody("body+"+input.getBody()+"\n"+e.getMessage())
+                    .withBody(jsonResponse)
                     .withStatusCode(500);
 
         }catch (Exception e){
             APIGatewayProxyResponseEvent response = new APIGatewayProxyResponseEvent();
+            ApiResponse apiResponse = new ApiResponse(false,"Unable to download Key");
+            apiResponse.addDetail("error",e.getMessage());
+            apiResponse.addDetail("body",input.getBody());
+            ObjectMapper objectMapper = new ObjectMapper();
+            String jsonResponse = null;
+            try {
+                jsonResponse = objectMapper.writeValueAsString(apiResponse);
+            } catch (JsonProcessingException ex) {
+                jsonResponse = "{\"error\":\""+e.getMessage()+"\"}";
+            }
             return response
-                    .withBody("body+"+input.getBody()+"\n"+e.getMessage())
+                    .withBody(jsonResponse)
                     .withStatusCode(500);
         }
     }

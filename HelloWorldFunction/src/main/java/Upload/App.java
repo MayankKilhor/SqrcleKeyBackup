@@ -18,11 +18,13 @@ import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.PutObjectRequest;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import payload.request.KeyUploadRequest;
 import payload.request.KeyUploadRequestParser;
+import payload.response.ApiResponse;
 
 import javax.crypto.SecretKey;
 
@@ -42,7 +44,7 @@ public class App implements RequestHandler<APIGatewayProxyRequestEvent, APIGatew
     public APIGatewayProxyResponseEvent handleRequest(final APIGatewayProxyRequestEvent input, final Context context) {
        try {
            String username =input.getHeaders().get("username");
-           String userId =input.getHeaders().get("userID");
+           String userId =input.getHeaders().get("userId");
            String filePath = "/tmp/keys.json";
            APIGatewayProxyResponseEvent response = new APIGatewayProxyResponseEvent();
            String requestBody = input.getBody();
@@ -53,24 +55,38 @@ public class App implements RequestHandler<APIGatewayProxyRequestEvent, APIGatew
            user = databaseUtil.findByUserName(username);
            List<Circle> circles =  keyUploadRequest.getCircles();
            if(user == null){
+               ApiResponse apiResponse = new ApiResponse(false,"Unable to fetch User details");
+               apiResponse.addDetail("error","Unable to fetch User details from the database!");
+               apiResponse.addDetail("username",username);
+               String jsonResponse = objectMapper.writeValueAsString(apiResponse);
                return response
-                       .withBody("Unable to Fetch User Details!")
+                       .withBody(jsonResponse)
                        .withStatusCode(400);
            }
            PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
            if (!passwordEncoder.matches(keyUploadRequest.getPassword(), user.getPassword())) {
+               ApiResponse apiResponse = new ApiResponse(false,"Authentication failed, Password is incorrect");
+               apiResponse.addDetail("error","Authentication failed, Password is incorrect!");
+               apiResponse.addDetail("username",username);
+               String jsonResponse = objectMapper.writeValueAsString(apiResponse);
                return response
-                       .withBody("Authentication failed!")
+                       .withBody(jsonResponse)
                        .withStatusCode(401);
            }
            if(userId == null || userId.length()!=16){
+               ApiResponse apiResponse = new ApiResponse(false,"UserId format is Invalid!");
+               apiResponse.addDetail("error","UserId format is Invalid!");
+               String jsonResponse = objectMapper.writeValueAsString(apiResponse);
                return response
-                       .withBody("UserId Invalid!")
+                       .withBody(jsonResponse)
                        .withStatusCode(400);
            }
            if(keyUploadRequest.getPrivateKey() == null){
+               ApiResponse apiResponse = new ApiResponse(false,"Private Key can't be null");
+               apiResponse.addDetail("error","Private Key can't be null!");
+               String jsonResponse = objectMapper.writeValueAsString(apiResponse);
                return response
-                       .withBody("PrivateKey cannot be null!")
+                       .withBody(jsonResponse)
                        .withStatusCode(400);
            }
            String encryptionKey = keyUploadRequest.getPassword();
@@ -78,25 +94,37 @@ public class App implements RequestHandler<APIGatewayProxyRequestEvent, APIGatew
            SecretKey secretKey = securityUtil.generateKey(encryptionKey);
 
            if (circles == null) {
+               ApiResponse apiResponse = new ApiResponse(false,"Circle List can't be null");
+               apiResponse.addDetail("error","Circle List can't be null!");
+               String jsonResponse = objectMapper.writeValueAsString(apiResponse);
                return response
-                       .withBody("Circles list cannot be null")
+                       .withBody(jsonResponse)
                        .withStatusCode(400);
 
            }
            for (Circle circle : circles) {
                if (circle == null) {
+                   ApiResponse apiResponse = new ApiResponse(false,"Circle can't be null");
+                   apiResponse.addDetail("error","Circle can't be null!");
+                   String jsonResponse = objectMapper.writeValueAsString(apiResponse);
                    return response
-                           .withBody("Circle cannot be null")
+                           .withBody(jsonResponse)
                            .withStatusCode(400);
                }
                if (circle.getCircleId() == null) {
+                   ApiResponse apiResponse = new ApiResponse(false,"Circle ID can't be null");
+                   apiResponse.addDetail("error","Circle ID can't be null!");
+                   String jsonResponse = objectMapper.writeValueAsString(apiResponse);
                    return response
-                           .withBody("Circle ID cannot be null")
+                           .withBody(jsonResponse)
                            .withStatusCode(400);
                }
                if (circle.getCircleHash() == null) {
+                   ApiResponse apiResponse = new ApiResponse(false,"Circle hash can't be null");
+                   apiResponse.addDetail("error","Circle hash can't be null!");
+                   String jsonResponse = objectMapper.writeValueAsString(apiResponse);
                    return response
-                           .withBody("Circle hash cannot be null")
+                           .withBody(jsonResponse)
                            .withStatusCode(400);
                }
 //               if(circle.getCoi() == null){
@@ -107,14 +135,20 @@ public class App implements RequestHandler<APIGatewayProxyRequestEvent, APIGatew
            }
            Boolean validDetails = ValidatorUtil.validCircleandUserID(userId,circles);
            if(!validDetails){
+               ApiResponse apiResponse = new ApiResponse(false,"Incorrect circle details or UserId");
+               apiResponse.addDetail("error","Incorrect circle details or UserId!");
+               String jsonResponse = objectMapper.writeValueAsString(apiResponse);
                return response
-                       .withBody("Incorrect circle details or userID")
+                       .withBody(jsonResponse)
                        .withStatusCode(400);
            }
 
            if(keyUploadRequest.getCircles().get(0).getCircleId() == null ||keyUploadRequest.getCircles().get(0).getCircleHash()== null){
+               ApiResponse apiResponse = new ApiResponse(false,"Circle details Invalid");
+               apiResponse.addDetail("error","Circle details Invalid!");
+               String jsonResponse = objectMapper.writeValueAsString(apiResponse);
                return response
-                       .withBody("Circle details Invalid!")
+                       .withBody(jsonResponse)
                        .withStatusCode(400);
            }
            KeyBackup keyBackup = new KeyBackup(keyUploadRequest.getPrivateKey(),keyUploadRequest.getCircles(),userId);
@@ -122,27 +156,39 @@ public class App implements RequestHandler<APIGatewayProxyRequestEvent, APIGatew
            String key = username+"/keys.json";
            if(keyUploadRequest.getEncrypted()){
                byte[] encryptedData = securityUtil.encrypt(json,secretKey);
-//               Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-//               byte[] keyBytes = encryptionKey.getBytes();
-//               SecretKeySpec secretKeySpec = new SecretKeySpec(keyBytes, "AES");
-//               cipher.init(Cipher.ENCRYPT_MODE, secretKeySpec);
-//               byte[] encryptedData = cipher.doFinal(json.getBytes());
+//
                try (FileOutputStream outputStream = new FileOutputStream(filePath)) {
                    outputStream.write(encryptedData);
                } catch (IOException e) {
+                   ApiResponse apiResponse = new ApiResponse(false,"Unable to Upload Key");
+                   apiResponse.addDetail("error",e.getMessage());
+                   apiResponse.addDetail("body",input.getBody());
+                   String jsonResponse = null;
+                   try {
+                       jsonResponse = objectMapper.writeValueAsString(apiResponse);
+                   } catch (JsonProcessingException ex) {
+                       throw new RuntimeException(ex);
+                   }
                    return response
-                           .withBody("body+" + input.getBody() + "\n" + e.getMessage())
+                           .withBody(jsonResponse)
                            .withStatusCode(500);
-
                }
            }else{
                try (FileWriter fileWriter = new FileWriter(filePath)) {
                    fileWriter.write(json);
                } catch (IOException e) {
+                   ApiResponse apiResponse = new ApiResponse(false,"Unable to backup Key");
+                   apiResponse.addDetail("error",e.getMessage());
+                   apiResponse.addDetail("body",input.getBody());
+                   String jsonResponse = null;
+                   try {
+                       jsonResponse = objectMapper.writeValueAsString(apiResponse);
+                   } catch (JsonProcessingException ex) {
+                       throw new RuntimeException(ex);
+                   }
                    return response
-                           .withBody("body+"+input.getBody()+"\n"+e.getMessage())
+                           .withBody(jsonResponse)
                            .withStatusCode(500);
-
                }
            }
 
@@ -152,14 +198,27 @@ public class App implements RequestHandler<APIGatewayProxyRequestEvent, APIGatew
            fieldsToUpdate.put("keysBackup", true);
            fieldsToUpdate.put("backupEncryption", keyUploadRequest.getEncrypted());
            databaseUtil.updateFields(username, fieldsToUpdate);
+           ApiResponse apiResponse = new ApiResponse(true,"Successfully backedup the keys");
+           apiResponse.addDetail("keyPath",key);
+           String jsonResponse = objectMapper.writeValueAsString(apiResponse);
            return response
-                   .withBody("Data is stored in :-"+key)
+                   .withBody(jsonResponse)
                    .withStatusCode(200);
 
        }catch(Exception e){
            APIGatewayProxyResponseEvent response = new APIGatewayProxyResponseEvent();
+           ApiResponse apiResponse = new ApiResponse(false,"Unable to backup Key");
+           apiResponse.addDetail("error",e.getMessage());
+           apiResponse.addDetail("body",input.getBody());
+           ObjectMapper objectMapper = new ObjectMapper();
+           String jsonResponse = null;
+           try {
+               jsonResponse = objectMapper.writeValueAsString(apiResponse);
+           } catch (JsonProcessingException ex) {
+               jsonResponse = "{\"error\":\""+e.getMessage()+"\"}";
+           }
            return response
-                   .withBody("body+"+input.getBody()+"\n"+e.getMessage())
+                   .withBody(jsonResponse)
                    .withStatusCode(500);
        }
     }
